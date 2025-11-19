@@ -33,7 +33,7 @@ const compat_fd = @import("../lib/compat/fd.zig");
 const log = std.log.scoped(.io_exec);
 
 /// The termios poll rate in milliseconds.
-const TERMIOS_POLL_MS = 200;
+// const TERMIOS_POLL_MS = 200;
 
 /// If we build with flatpak support then we have to keep track of
 /// a potential execution on the host.
@@ -130,11 +130,11 @@ pub fn threadEnter(
     var stream = xev.Stream.initFd(pty_fds.write);
     errdefer stream.deinit();
 
-    // Start our timer to read termios state changes. This is used
-    // to detect things such as when password input is being done
-    // so we can render the terminal in a different way.
-    var termios_timer = try xev.Timer.init();
-    errdefer termios_timer.deinit();
+    // // Start our timer to read termios state changes. This is used
+    // // to detect things such as when password input is being done
+    // // so we can render the terminal in a different way.
+    // var termios_timer = try xev.Timer.init();
+    // errdefer termios_timer.deinit();
 
     // Start our read thread
     const read_thread = try std.Thread.spawn(
@@ -152,7 +152,7 @@ pub fn threadEnter(
         .read_thread = read_thread,
         .read_thread_pipe = pipe[1],
         .read_thread_fd = pty_fds.read,
-        .termios_timer = termios_timer,
+        // .termios_timer = termios_timer,
     } };
 
     // Start our process watcher. If we have an xev.Process use it.
@@ -178,19 +178,19 @@ pub fn threadEnter(
         }
     }
 
-    // Start our termios timer. We don't support this on Windows.
-    // Fundamentally, we could support this on Windows so we're just
-    // waiting for someone to implement it.
-    if (comptime builtin.os.tag != .windows) {
-        termios_timer.run(
-            td.loop,
-            &td.backend.exec.termios_timer_c,
-            TERMIOS_POLL_MS,
-            termio.Termio.ThreadData,
-            td,
-            termiosTimer,
-        );
-    }
+    // // Start our termios timer. We don't support this on Windows.
+    // // Fundamentally, we could support this on Windows so we're just
+    // // waiting for someone to implement it.
+    // if (comptime builtin.os.tag != .windows) {
+    //     termios_timer.run(
+    //         td.loop,
+    //         &td.backend.exec.termios_timer_c,
+    //         TERMIOS_POLL_MS,
+    //         termio.Termio.ThreadData,
+    //         td,
+    //         termiosTimer,
+    //     );
+    // }
 }
 
 pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
@@ -229,39 +229,39 @@ pub fn threadExit(self: *Exec, td: *termio.Termio.ThreadData) void {
     exec.read_thread.join();
 }
 
-pub fn focusGained(
-    self: *Exec,
-    td: *termio.Termio.ThreadData,
-    focused: bool,
-) !void {
-    _ = self;
-
-    assert(td.backend == .exec);
-    const execdata = &td.backend.exec;
-
-    // Windows has no termios, so there is nothing to poll.
-    if (comptime builtin.os.tag == .windows) return;
-
-    if (!focused) {
-        // Flag the timer to end on the next iteration. This is
-        // a lot cheaper than doing full timer cancellation.
-        execdata.termios_timer_running = false;
-    } else {
-        // Always set this to true. There is a race condition if we lose
-        // focus and regain focus before the termios timer ticks where
-        // if we don't set this unconditionally the timer will end on
-        // the next iteration.
-        execdata.termios_timer_running = true;
-
-        // If we're focused, we want to start our termios timer. We
-        // only do this if it isn't already running. We use the termios
-        // callback because that'll trigger an immediate state check AND
-        // start the timer.
-        if (execdata.termios_timer_c.state() != .active) {
-            _ = termiosTimer(td, undefined, undefined, {});
-        }
-    }
-}
+// pub fn focusGained(
+//     self: *Exec,
+//     td: *termio.Termio.ThreadData,
+//     focused: bool,
+// ) !void {
+//     _ = self;
+//
+//     assert(td.backend == .exec);
+//     const execdata = &td.backend.exec;
+//
+//     // Windows has no termios, so there is nothing to poll.
+//     if (comptime builtin.os.tag == .windows) return;
+//
+//     if (!focused) {
+//         // Flag the timer to end on the next iteration. This is
+//         // a lot cheaper than doing full timer cancellation.
+//         execdata.termios_timer_running = false;
+//     } else {
+//         // Always set this to true. There is a race condition if we lose
+//         // focus and regain focus before the termios timer ticks where
+//         // if we don't set this unconditionally the timer will end on
+//         // the next iteration.
+//         execdata.termios_timer_running = true;
+//
+//         // If we're focused, we want to start our termios timer. We
+//         // only do this if it isn't already running. We use the termios
+//         // callback because that'll trigger an immediate state check AND
+//         // start the timer.
+//         if (execdata.termios_timer_c.state() != .active) {
+//             _ = termiosTimer(td, undefined, undefined, {});
+//         }
+//     }
+// }
 
 pub fn resize(
     self: *Exec,
@@ -314,91 +314,91 @@ fn flatpakExit(
     processExitCommon(td_.?, exit_code);
 }
 
-fn termiosTimer(
-    td_: ?*termio.Termio.ThreadData,
-    _: *xev.Loop,
-    _: *xev.Completion,
-    r: xev.Timer.RunError!void,
-) xev.CallbackAction {
-    // log.debug("termios timer fired", .{});
-
-    // This should never happen because we guard starting our
-    // timer on windows but we want this assertion to fire if
-    // we ever do start the timer on windows.
-    // TODO: support on windows
-    if (comptime builtin.os.tag == .windows) {
-        @panic("termios timer not implemented on Windows");
-    }
-
-    _ = r catch |err| switch (err) {
-        // This is sent when our timer is canceled. That's fine.
-        error.Canceled => return .disarm,
-
-        else => {
-            log.warn("error in termios timer callback err={}", .{err});
-            @panic("crash in termios timer callback");
-        },
-    };
-
-    const td = td_.?;
-    assert(td.backend == .exec);
-    const exec = &td.backend.exec;
-
-    // This is kind of hacky but we rebuild a Pty struct to get the
-    // termios data.
-    const mode: ptypkg.Mode = (Pty{
-        .master = exec.read_thread_fd,
-        .slave = undefined,
-    }).getMode() catch |err| err: {
-        log.warn("error getting termios mode err={}", .{err});
-
-        // If we have an error we return the default mode values
-        // which are the likely values.
-        break :err .{};
-    };
-
-    // If the mode changed, then we process it.
-    if (!std.meta.eql(mode, exec.termios_mode)) mode_change: {
-        log.debug("termios change mode={}", .{mode});
-        exec.termios_mode = mode;
-
-        // We assume we're in some sort of password input if we're
-        // in canonical mode and not echoing. This is a heuristic.
-        const password_input = mode.canonical and !mode.echo;
-
-        // If our password input state changed on the terminal then
-        // we notify the surface.
-        {
-            td.renderer_state.mutex.lockUncancelable(global.io());
-            defer td.renderer_state.mutex.unlock(global.io());
-            const t = td.renderer_state.terminal;
-            if (t.flags.password_input == password_input) {
-                break :mode_change;
-            }
-        }
-
-        // We have to notify the surface that we're in password input.
-        // We must block on this because the balanced true/false state
-        // of this is critical to apprt behavior.
-        _ = td.surface_mailbox.push(.{
-            .password_input = password_input,
-        }, .{ .forever = {} });
-    }
-
-    // Repeat the timer
-    if (exec.termios_timer_running) {
-        exec.termios_timer.run(
-            td.loop,
-            &exec.termios_timer_c,
-            TERMIOS_POLL_MS,
-            termio.Termio.ThreadData,
-            td,
-            termiosTimer,
-        );
-    }
-
-    return .disarm;
-}
+// fn termiosTimer(
+//     td_: ?*termio.Termio.ThreadData,
+//     _: *xev.Loop,
+//     _: *xev.Completion,
+//     r: xev.Timer.RunError!void,
+// ) xev.CallbackAction {
+//     // log.debug("termios timer fired", .{});
+//
+//     // This should never happen because we guard starting our
+//     // timer on windows but we want this assertion to fire if
+//     // we ever do start the timer on windows.
+//     // TODO: support on windows
+//     if (comptime builtin.os.tag == .windows) {
+//         @panic("termios timer not implemented on Windows");
+//     }
+//
+//     _ = r catch |err| switch (err) {
+//         // This is sent when our timer is canceled. That's fine.
+//         error.Canceled => return .disarm,
+//
+//         else => {
+//             log.warn("error in termios timer callback err={}", .{err});
+//             @panic("crash in termios timer callback");
+//         },
+//     };
+//
+//     const td = td_.?;
+//     assert(td.backend == .exec);
+//     const exec = &td.backend.exec;
+//
+//     // This is kind of hacky but we rebuild a Pty struct to get the
+//     // termios data.
+//     const mode: ptypkg.Mode = (Pty{
+//         .master = exec.read_thread_fd,
+//         .slave = undefined,
+//     }).getMode() catch |err| err: {
+//         log.warn("error getting termios mode err={}", .{err});
+//
+//         // If we have an error we return the default mode values
+//         // which are the likely values.
+//         break :err .{};
+//     };
+//
+//     // If the mode changed, then we process it.
+//     if (!std.meta.eql(mode, exec.termios_mode)) mode_change: {
+//         log.debug("termios change mode={}", .{mode});
+//         exec.termios_mode = mode;
+//
+//         // We assume we're in some sort of password input if we're
+//         // in canonical mode and not echoing. This is a heuristic.
+//         const password_input = mode.canonical and !mode.echo;
+//
+//         // If our password input state changed on the terminal then
+//         // we notify the surface.
+//         {
+//             td.renderer_state.mutex.lockUncancelable(global.io());
+//             defer td.renderer_state.mutex.unlock(global.io());
+//             const t = td.renderer_state.terminal;
+//             if (t.flags.password_input == password_input) {
+//                 break :mode_change;
+//             }
+//         }
+//
+//         // We have to notify the surface that we're in password input.
+//         // We must block on this because the balanced true/false state
+//         // of this is critical to apprt behavior.
+//         _ = td.surface_mailbox.push(.{
+//             .password_input = password_input,
+//         }, .{ .forever = {} });
+//     }
+//
+//     // Repeat the timer
+//     if (exec.termios_timer_running) {
+//         exec.termios_timer.run(
+//             td.loop,
+//             &exec.termios_timer_c,
+//             TERMIOS_POLL_MS,
+//             termio.Termio.ThreadData,
+//             td,
+//             termiosTimer,
+//         );
+//     }
+//
+//     return .disarm;
+// }
 
 pub fn queueWrite(
     self: *Exec,
@@ -537,10 +537,10 @@ pub const ThreadData = struct {
     read_thread_pipe: posix.fd_t,
     read_thread_fd: posix.fd_t,
 
-    /// The timer to detect termios state changes.
-    termios_timer: xev.Timer,
-    termios_timer_c: xev.Completion = .{},
-    termios_timer_running: bool = true,
+    // /// The timer to detect termios state changes.
+    // termios_timer: xev.Timer,
+    // termios_timer_c: xev.Completion = .{},
+    // termios_timer_running: bool = true,
 
     /// The last known termios mode. Used for change detection
     /// to prevent unnecessary locking of expensive mutexes.
@@ -560,8 +560,8 @@ pub const ThreadData = struct {
         // Stop our write stream
         self.write_stream.deinit();
 
-        // Stop our termios timer
-        self.termios_timer.deinit();
+        // // Stop our termios timer
+        // self.termios_timer.deinit();
     }
 };
 
