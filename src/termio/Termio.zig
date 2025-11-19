@@ -637,8 +637,8 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
         try self.queueWrite(td, writer.buffered(), false);
     }
 
-    // We always notify our backend of focus changes.
-    try self.backend.focusGained(td, focused);
+    // // We always notify our backend of focus changes.
+    // try self.backend.focusGained(td, focused);
 }
 
 /// Process output from the pty. This is the manual API that users can
