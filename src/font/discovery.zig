@@ -148,11 +148,11 @@ pub const Descriptor = struct {
         // For fontconfig, we always add monospace in the pattern. Since
         // fontconfig sorts by closeness to the pattern, this doesn't fully
         // exclude non-monospace but helps prefer it.
-        assert(pat.add(
-            .spacing,
-            .{ .integer = @intFromEnum(fontconfig.Spacing.mono) },
-            false,
-        ));
+        // assert(pat.add(
+        //     .spacing,
+        //     .{ .integer = @intFromEnum(fontconfig.Spacing.mono) },
+        //     false,
+        // ));
 
         return pat;
     }
